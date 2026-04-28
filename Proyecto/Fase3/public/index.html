@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 2FA - Telegram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        input[type="text"]::placeholder,
+        input[type="password"]::placeholder {
+            color: #ccc;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #resultado {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+
+        #resultado.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        #resultado.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        #resultado.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .timer {
+            font-size: 12px;
+            color: #ff9800;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Formulario de Login -->
+        <div id="loginSection">
+            <div class="header">
+                <h1>🔐 Iniciar Sesión</h1>
+                <p>Con Autenticación 2FA por Telegram</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    <input type="text" id="username" placeholder="Ingresa tu usuario" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    <input type="password" id="password" placeholder="Ingresa tu contraseña" required>
+                </div>
+                <button type="submit">Ingresar</button>
+            </form>
+            <div id="resultado"></div>
+        </div>
+
+        <!-- Formulario de Verificación 2FA -->
+        <div id="twoFASection" class="hidden">
+            <div class="header">
+                <h1>📱 Verificación 2FA</h1>
+                <p>Ingresa el código que recibiste en Telegram</p>
+            </div>
+            <form id="verifyPinForm">
+                <div class="form-group">
+                    <label for="pin">Código de Verificación</label>
+                    <input type="text" id="pin" placeholder="Ej: 1234" maxlength="4" pattern="[0-9]{4}" required>
+                </div>
+                <button type="submit">Verificar</button>
+                <div class="timer" id="timer"></div>
+            </form>
+            <div id="resultado2"></div>
+            <button type="button" onclick="goBack()" style="background: #6c757d; margin-top: 10px;">Volver a Login</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUsername = '';
+        let expirationTime = null;
+        let timerInterval = null;
+
+        // Evento del formulario de login
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('resultado');
+            const button = e.target.querySelector('button');
+
+            button.disabled = true;
+            button.textContent = 'Procesando...';
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 1) {
+                    currentUsername = username;
+                    expirationTime = new Date(data.expira);
+                    resultDiv.className = 'success';
+                    resultDiv.textContent = '✓ ' + data.msg;
+                    resultDiv.style.display = 'block';
+
+                    // Mostrar pantalla 2FA después de 1 segundo
+                    setTimeout(() => {
+                        document.getElementById('loginSection').classList.add('hidden');
+                        document.getElementById('twoFASection').classList.remove('hidden');
+                        startTimer();
+                        document.getElementById('pin').focus();
+                    }, 1000);
+                } else {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = '✗ Error: ' + (data.msg || 'Credenciales inválidas');
+                    resultDiv.style.display = 'block';
+                }
+            } catch (error) {
+                resultDiv.className = 'error';
+                resultDiv.textContent = '✗ Error al conectar con el servidor';
+                resultDiv.style.display = 'block';
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Ingresar';
+            }
+        });
+
+        // Evento del formulario de verificación 2FA
+        document.getElementById('verifyPinForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const pin = document.getElementById('pin').value;
+            const resultDiv = document.getElementById('resultado2');
+            const button = e.target.querySelector('button');
+
+            button.disabled = true;
+            button.textContent = 'Verificando...';
+
+            try {
+                const response = await fetch('/api/verify-pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: currentUsername, pin: pin })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 1) {
+                    clearInterval(timerInterval);
+                    resultDiv.className = 'success';
+                    resultDiv.innerHTML = `
+                        <div class="success-icon">🎉</div>
+                        <strong>${data.msg}</strong><br>
+                        Token de sesión generado: ${data.sessionToken.substring(0, 20)}...
+                    `;
+                    resultDiv.style.display = 'block';
+                    button.disabled = true;
+                    button.textContent = 'Autenticación Exitosa';
+                } else {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = '✗ Error: ' + (data.msg || 'PIN inválido');
+                    resultDiv.style.display = 'block';
+                }
+            } catch (error) {
+                resultDiv.className = 'error';
+                resultDiv.textContent = '✗ Error al conectar con el servidor';
+                resultDiv.style.display = 'block';
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Verificar';
+            }
+        });
+
+        // Función para iniciar el temporizador
+        function startTimer() {
+            const timerDiv = document.getElementById('timer');
+            timerInterval = setInterval(() => {
+                const now = new Date();
+                const diff = expirationTime - now;
+
+                if (diff <= 0) {
+                    clearInterval(timerInterval);
+                    timerDiv.textContent = '⏱️ PIN expirado';
+                    timerDiv.style.color = '#d32f2f';
+                    document.getElementById('verifyPinForm').querySelector('button').disabled = true;
+                } else {
+                    const seconds = Math.floor(diff / 1000);
+                    timerDiv.textContent = `⏱️ Tiempo restante: ${seconds}s`;
+                }
+            }, 1000);
+        }
+
+        // Función para volver al login
+        function goBack() {
+            clearInterval(timerInterval);
+            document.getElementById('twoFASection').classList.add('hidden');
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('loginForm').reset();
+            document.getElementById('verifyPinForm').reset();
+            document.getElementById('resultado').style.display = 'none';
+            document.getElementById('resultado2').style.display = 'none';
+            currentUsername = '';
+            expirationTime = null;
+        }
+    </script>
+</body>
+
+</html>
